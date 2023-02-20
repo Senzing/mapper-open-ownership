@@ -1,0 +1,1 @@
+# mapper-open-ownership
