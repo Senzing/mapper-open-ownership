@@ -262,8 +262,6 @@ class mapper():
                     self.stat_pack[args[0]][args[1]][args[2]][args[3]]['value'].append(value)
 
     def capture_mapped_stats(self, json_data):
-
-        data_source = json_data.get('DATA_SOURCE', 'OOR')
         for key1 in json_data.keys():
             if isinstance(json_data[key1], list):
                 self.update_stat(data_source, key1, value=json_data[key1])
