@@ -263,14 +263,14 @@ class mapper():
 
     def capture_mapped_stats(self, json_data):
 
-        data_source = json_data.get('DATA_SOURCE', 'UNKNOWN')
+        data_source = json_data.get('DATA_SOURCE', 'OOR')
         for key1 in json_data.keys():
             if isinstance(json_data[key1], list):
                 self.update_stat(data_source, key1, value=json_data[key1])
             else:
-                for subrecord in json_data[key1]:
-                    for key2 in subrecord:
-                        self.update_stat(data_source, key2, value=subrecord[key2])
+                # it seems the format changed in bods-v0.2 in it is not an array anymore
+                self.update_stat(data_source, key1, value=[json_data[key1]])
+
 
 def signal_handler(signal, frame):
     print('USER INTERUPT! Shutting down ... (please wait)')
@@ -305,7 +305,8 @@ if __name__ == "__main__":
         input_file_handle = gzip.open(args.input_file, 'r')
         file_reader = io.TextIOWrapper(io.BufferedReader(input_file_handle), encoding='utf-8', errors='ignore')
     else:
-        input_file_handle = open(file_name, 'r')
+        # fixed unknown variable input_file_name
+        input_file_handle = open(args.input_file, 'r')
         file_reader = input_file_handle
 
     mapper = mapper()
@@ -319,6 +320,8 @@ if __name__ == "__main__":
         json_data = mapper.map(input_row, input_row_count)
 
         if json_data:
+            # for some reason, without the following line there was not any key with DATA_SOURCE in the generated file
+            json_data['DATA_SOURCE'] = "OPEN_OWNER"
             if json_data['RECORD_ID'] not in output_cache:
                 output_cache[json_data['RECORD_ID']] = json_data
             else:
