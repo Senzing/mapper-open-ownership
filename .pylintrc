@@ -15,6 +15,7 @@ disable=
     missing-function-docstring,
     missing-module-docstring,
     multiple-statements,
+    no-member,
     no-value-for-parameter,
     redefined-outer-name,
     superfluous-parens,
