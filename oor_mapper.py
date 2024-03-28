@@ -5,10 +5,7 @@ import os
 import argparse
 import json
 import time
-from datetime import datetime
-from dateutil.parser import parse as dateparse
 import signal
-import hashlib
 import gzip
 import io
 
@@ -20,8 +17,9 @@ class mapper():
 
         self.stat_pack = {}
         self.conversions = {}
-        self.conversions['ADDR_TYPE'] = {}
-        self.conversions['ADDR_TYPE']['REGISTERED'] = 'BUSINESS'
+        self.conversions['ADDR_TYPE'] = {'personStatement': {}, 'entityStatement': {}}
+        self.conversions['ADDR_TYPE']['personStatement']['REGISTERED'] = 'PRIMARY'
+        self.conversions['ADDR_TYPE']['entityStatement']['REGISTERED'] = 'BUSINESS'
         self.conversions['ID_TYPE'] = {}
         self.conversions['ID_TYPE']['DK-CVR'] = ['NATIONAL_ID', 'DNK']
         self.conversions['ID_TYPE']['GB-COH'] = ['NATIONAL_ID', 'GBR']
@@ -34,134 +32,105 @@ class mapper():
         json_data = {}
 
         statement_type = raw_data.get('statementType', 'none')
-        entity_type = raw_data.get('entityType', 'none')
 
-        json_data['DATA_SOURCE'] = 'OPEN-OWNER'
+        json_data['DATA_SOURCE'] = 'OPEN-OWNERSHIP'
         if statement_type == 'entityStatement':
-            json_data = self.map_entity(raw_data)
             json_data['RECORD_ID'] = raw_data['statementID']
+            json_data['STATEMENT_DATE'] = raw_data['statementDate']
+            json_data['RECORD_TYPE'] = 'ORGANIZATION'
+            json_data = self.map_entity(raw_data, json_data)
 
         elif statement_type == 'personStatement':
-            json_data = self.map_person(raw_data)
             json_data['RECORD_ID'] = raw_data['statementID']
+            json_data['STATEMENT_DATE'] = raw_data['statementDate']
+            json_data['RECORD_TYPE'] = 'PERSON'
+            json_data = self.map_person(raw_data, json_data)
 
         elif statement_type == 'ownershipOrControlStatement':
-            entity_type = list(raw_data['interestedParty'].keys())[0]
-            json_data = self.map_relationship(raw_data)
-            json_data['RECORD_ID'] = raw_data['subject']['describedByEntityStatement']
+            json_data = self.map_relationship(raw_data, json_data)
 
-        mapper.update_stat('!raw', 'statements', statement_type, entity_type)
+        for attr in raw_data.keys():
+            mapper.update_stat('!raw', 'statement_attrs', statement_type, attr)
 
-        json_data = self.remove_empty_tags(json_data)
-
-        return json_data
-
-    def map_entity(self, raw_data):
-        json_data = {}
-        json_data['RECORD_TYPE'] = 'ORGANIZATION'
-
-        json_data['PRIMARY_NAME_ORG'] = raw_data.get('name')
-
-        json_data['ADDRESSES'] = []
-        for addr_data in raw_data.get('addresses',[]):
-            addr_full = addr_data.get('address')
-            if addr_full:
-                addr_country = addr_data.get('country','')
-                raw_addr_type = addr_data.get('type','unknown-address').upper()
-                mapper.update_stat('!raw', 'address_type', raw_addr_type)
-                addr_type = self.conversions['ADDR_TYPE'].get(raw_addr_type, raw_addr_type)
-                json_data['ADDRESSES'].append({'ADDR_TYPE': addr_type, 'ADDR_FULL': addr_full, 'ADDR_COUNTRY': addr_country})
-
-        json_data['IDENTIFIERS'] = []
-        json_data['LINKS'] = []
-        #json_data['MISC'] = []
-        for id_data in raw_data.get('identifiers',[]):
-            id_value = id_data.get('id')
-            id_uri = id_data.get('uri')
-            if id_value or id_uri:
-                scheme = id_data.get('scheme','')
-                schemeName = id_data.get('schemeName','')
-                if id_uri:
-                    json_data['LINKS'].append({schemeName: id_uri})
-                elif scheme and id_value:
-                    mapper.update_stat('!raw', 'id-entity', scheme, value=id_value)
-                    senzing_attr, country = self.conversions['ID_TYPE'].get(scheme, ('OTHER_ID', ''))
-                    if senzing_attr == 'NATIONAL_ID':
-                        mapped_data = {'NATIONAL_ID_NUMBER': id_value, 'NATIONAL_ID_TYPE': scheme, 'NATIONAL_ID_COUNTRY': country}
-                    elif senzing_attr == 'OTHER_ID':
-                        mapped_data = {'OTHER_ID_NUMBER': id_value, 'OTHER_ID_TYPE': scheme, 'OTHER_ID_COUNTRY': country}
-                    else:
-                        mapped_data = {senzing_attr: id_value}
-                    json_data['IDENTIFIERS'].append(mapped_data)
-                else:
-                    #json_data['MISC'].append({schemeName: id_value})
-                    mapper.update_stat('!raw', 'id-entity', 'schemeNameOnly', schemeName, value=id_value)
-
-        json_data['RELATIONSHIP_LIST'] = [{'REL_ANCHOR_DOMAIN': 'OOC', 'REL_ANCHOR_KEY': raw_data['statementID']}]
+        if raw_data.get('replacesStatements'):
+            json_data['replaces_statements'] = [{"statementID": x} for x in raw_data.get('replacesStatements')]
+            if statement_type == 'ownershipOrControlStatement':
+                input(json.dumps(raw_data, indent=4))
+                mapper.update_stat('!alert', 'ownershipOrControlStatement-replaced!', value=rel_pointer_key)
 
         return json_data
 
-    def map_person(self, raw_data):
-        json_data = {}
-        json_data['RECORD_TYPE'] = 'PERSON'
+    def map_entity(self, raw_data, json_data):
+        json_data['NAMES'] = [{'PRIMARY_NAME_ORG': raw_data.get('name')}]
+        if raw_data.get('alternateNames'):
+            for name_value in raw_data.get('alternateNames'):
+                json_data['NAMES'].append({'ALTERNATE_NAME_FULL': name_value})
 
-        json_data['OTHER_NAMES'] = []
+        if raw_data.get('foundingDate'):
+            json_data['REGISTRATION_DATE'] = raw_data.get('foundingDate')
+
+        if raw_data.get('dissolutionDate'):
+            json_data['dissolutionDate'] = raw_data.get('dissolutionDate')
+
+        if raw_data.get('incorporatedInJurisdiction'):
+            json_data['REGISTRATION_COUNTRY'] = raw_data.get('incorporatedInJurisdiction').get('code')
+
+        if raw_data.get('addresses'):
+            json_data['ADDRESSES'] = self.map_addresses(raw_data)
+
+        if raw_data.get('identifiers'):
+            identifiers, links = self.map_identifiers(raw_data)
+            if identifiers:
+                json_data['IDENTIFIERS'] = identifiers
+            if links:
+                json_data['LINKS'] = links
+
+        json_data['RELATIONSHIPS'] = [{'REL_ANCHOR_DOMAIN': 'OOR', 'REL_ANCHOR_KEY': raw_data['statementID']}]
+
+        return json_data
+
+    def map_person(self, raw_data, json_data):
+
+        json_data['NAMES'] = []
         for name_data in raw_data.get('names',[]):
             name_value = name_data.get('fullName')
             if name_value:
-                raw_name_type = name_data.get('type')
-                mapper.update_stat('!raw', 'address_type', raw_name_type)
+                raw_name_type = name_data.get('type', 'ALTERNATE').replace('_', '-')
+                mapper.update_stat('!raw', 'name_type', 'PERSON', raw_name_type)
                 if 'PRIMARY_NAME_FULL' not in json_data:
                     json_data['PRIMARY_NAME_FULL'] = name_value
                 else:
-                    json_data['OTHER_NAMES'].append({'NAME_TYPE': raw_name_type, 'NAME_FULL': name_value})
+                    json_data['NAMES'].append({f'{raw_name_type}_NAME_FULL': name_value})
 
-        dob = raw_data.get('birthDate',[])
-        if dob:
-            json_data['DATE_OF_BIRTH'] = dob
+        if raw_data.get('personType'):
+            json_data['personType'] = raw_data.get('personType')
 
-        json_data['ADDRESSES'] = []
-        unspecified_addr_type = 'PRIMARY'
-        for addr_data in raw_data.get('addresses',[]):
-            addr_full = addr_data.get('address')
-            if addr_full:
-                addr_country = addr_data.get('country','')
-                raw_addr_type = addr_data.get('type',unspecified_addr_type).upper()
-                mapper.update_stat('!raw', 'address_type', raw_addr_type)
-                addr_type = self.conversions['ADDR_TYPE'].get(raw_addr_type, raw_addr_type)
-                json_data['ADDRESSES'].append({'ADDR_TYPE': addr_type, 'ADDR_FULL': addr_full, 'ADDR_COUNTRY': addr_country})
-                unspecified_addr_type = 'OTHER'
+        if raw_data.get('birthDate') or raw_data.get('nationalities'):
+            json_data['ATTRIBUTES'] = []
+            for nationality_data in raw_data.get('nationalities', []):
+                json_data['ATTRIBUTES'].append({"NATIONALITY": nationality_data.get('code')})
 
-        json_data['IDENTIFIERS'] = []
-        json_data['LINKS'] = []
-        #json_data['MISC'] = []
-        for id_data in raw_data.get('identifiers',[]):
-            id_value = id_data.get('id')
-            id_uri = id_data.get('uri')
-            if id_value or id_uri:
-                scheme = id_data.get('scheme','')
-                schemeName = id_data.get('schemeName','')
-                if id_uri:
-                    json_data['LINKS'].append({schemeName: id_uri})
-                elif scheme and id_value:
-                    mapper.update_stat('!raw', 'id-person', scheme, value=id_value)
-                    senzing_attr, country = self.conversions['ID_TYPE'].get(scheme, ('OTHER_ID', ''))
-                    if senzing_attr == 'NATIONAL_ID':
-                        mapped_data = {'NATIONAL_ID_NUMBER': id_value, 'NATIONAL_ID_TYPE': scheme, 'NATIONAL_ID_COUNTRY': country}
-                    elif senzing_attr == 'OTHER_ID':
-                        mapped_data = {'OTHER_ID_NUMBER': id_value, 'OTHER_ID_TYPE': scheme, 'OTHER_ID_COUNTRY': country}
-                    else:
-                        mapped_data = {senzing_attr: id_value}
-                    json_data['IDENTIFIERS'].append(mapped_data)
-                else:
-                    #json_data['MISC'].append({schemeName: id_value})
-                    mapper.update_stat('!raw', 'id-person', 'schemeNameOnly', schemeName, value=id_value)
+            if raw_data.get('birthDate'):
+                json_data['DATE_OF_BIRTH'] = raw_data.get('birthDate')
 
-        json_data['RELATIONSHIP_LIST'] = [{'REL_ANCHOR_DOMAIN': 'OOC', 'REL_ANCHOR_KEY': raw_data['statementID']}]
+        if raw_data.get('addresses'):
+            json_data['ADDRESSES'] = self.map_addresses(raw_data)
+
+        if raw_data.get('identifiers'):
+            identifiers, links = self.map_identifiers(raw_data)
+            if identifiers:
+                json_data['IDENTIFIERS'] = identifiers
+            if links:
+                json_data['LINKS'] = links
+
+        json_data['RELATIONSHIPS'] = [{'REL_ANCHOR_DOMAIN': 'OOR', 'REL_ANCHOR_KEY': raw_data['statementID']}]
 
         return json_data
 
-    def map_relationship(self, raw_data):
+
+    def map_relationship(self, raw_data, json_data):
+
+        json_data['RECORD_ID'] = raw_data['subject']['describedByEntityStatement']
 
         if raw_data['interestedParty'].get('describedByPersonStatement'):
             rel_pointer_key = raw_data['interestedParty'].get('describedByPersonStatement')
@@ -170,29 +139,77 @@ class mapper():
         else:
             rel_pointer_key = 'unknown'
 
-        interest_types = []
-        for interest_data in raw_data.get('interests', []):
-            if interest_data.get('type'):
-                interest_types.append(interest_data.get('type').replace('-', '_'))
-        rel_pointer_role = '|'.join(set(interest_types)) if interest_types else 'unknown'
+        relationship_list = []
+        for interest_data in raw_data.get('interests'):
+            rel_pointer_role = interest_data.get('type', 'interested party').replace('-', '_')
+            if interest_data.get('share'):
+                exact = interest_data.get('share').get('exact', 0)
+                minimum = interest_data.get('share').get('minimum', exact)
+                maximum = interest_data.get('share').get('maximum', exact)
+                if minimum == exact and maximum == exact:
+                    rel_pointer_role += f" {round(exact,2)}%"
+                else:
+                    if interest_data.get('share').get('minimum'):
+                        rel_pointer_role += f" {round(minimum,2)}%"
+                    if interest_data.get('share').get('maximum'):
+                        rel_pointer_role += f" {round(maximum,2)}%"
 
-        return {'RELATIONSHIP_LIST': [{'REL_POINTER_DOMAIN': 'OOC', 'REL_POINTER_KEY': rel_pointer_key, 'REL_POINTER_ROLE': rel_pointer_role}]}
+            relationship = {'REL_POINTER_DOMAIN': 'OOR', 'REL_POINTER_KEY': rel_pointer_key, 'REL_POINTER_ROLE': rel_pointer_role}
+            if interest_data.get('startDate'):
+                relationship['REL_POINTER_FROM_DATE'] = interest_data.get('startDate')
+            if interest_data.get('endDate'):
+                relationship['REL_POINTER_THRU_DATE'] = interest_data.get('endDate')
+            relationship_list.append(relationship)
 
-    def compute_record_hash(self, target_dict, attr_list = None):
-        if attr_list:
-            string_to_hash = ''
-            for attr_name in sorted(attr_list):
-                string_to_hash += (' '.join(str(target_dict[attr_name]).split()).upper() if attr_name in target_dict and target_dict[attr_name] else '') + '|'
-        else:
-            string_to_hash = json.dumps(target_dict, sort_keys=True)
-        return hashlib.md5(bytes(string_to_hash, 'utf-8')).hexdigest()
+        if not relationship_list: # actually happens often: no interests section
+            relationship_list.append({'REL_POINTER_DOMAIN': 'OOR', 'REL_POINTER_KEY': rel_pointer_key, 'REL_POINTER_ROLE': 'interested party'})
 
-    def format_date(self, raw_date):
-        try:
-            return datetime.strftime(dateparse(raw_date), '%Y-%m-%d')
-        except:
-            self.update_stat('!INFO', 'BAD_DATE', raw_date)
-            return ''
+
+        json_data['RELATIONSHIPS'] = relationship_list
+        if not relationship_list:
+            mapper.update_stat('!alert', 'no-relationship-interests!', value=rel_pointer_key)
+        return json_data
+
+
+    def map_addresses(self, raw_data):
+        statement_type = raw_data.get('statementType')
+        address_list = []
+        for addr_data in raw_data.get('addresses',[]):
+            addr_full = addr_data.get('address')
+            if addr_full:
+                addr_country = addr_data.get('country','')
+                raw_addr_type = addr_data.get('type','unknown').upper()
+                mapper.update_stat('!raw', 'address_type', raw_data.get('statementType', 'none'), raw_addr_type)
+                addr_type = self.conversions['ADDR_TYPE'][statement_type].get(raw_addr_type, raw_addr_type  )
+                address_list.append({'ADDR_TYPE': addr_type, 'ADDR_FULL': addr_full, 'ADDR_COUNTRY': addr_country})
+        return address_list
+
+
+    def map_identifiers(self, raw_data):
+        identifiers = []
+        links = []
+        for id_data in raw_data.get('identifiers',[]):
+            id_value = id_data.get('id')
+            id_uri = id_data.get('uri')
+            scheme = id_data.get('scheme','')
+            schemeName = id_data.get('schemeName','')
+            if id_uri:
+                mapper.update_stat('!raw', 'link', raw_data.get('statementType', 'none'), f'{schemeName}|{scheme}', value=id_value)
+                if schemeName == 'OpenOwnership Register' and id_uri.startswith('/entities'):
+                    id_uri = 'https://register.openownership.org' + id_uri
+                links.append({schemeName: id_uri})
+            else:
+                senzing_attr, country = self.conversions['ID_TYPE'].get(scheme, ('NATIONAL_ID', ''))
+                mapper.update_stat('!raw', 'identifier', raw_data.get('statementType', 'none'), f'{schemeName}|{scheme}|{senzing_attr}', value=id_value)
+                if senzing_attr == 'NATIONAL_ID':
+                    mapped_data = {'NATIONAL_ID_NUMBER': id_value, 'NATIONAL_ID_TYPE': scheme, 'NATIONAL_ID_COUNTRY': country}
+                elif senzing_attr == 'OTHER_ID':
+                    mapped_data = {'OTHER_ID_NUMBER': id_value, 'OTHER_ID_TYPE': scheme if scheme else schemeName, 'OTHER_ID_COUNTRY': country}
+                else:
+                    mapped_data = {senzing_attr: id_value}
+                identifiers.append(mapped_data)
+        return identifiers, links
+
 
     def remove_empty_tags(self, d):
         if isinstance(d, dict):
@@ -263,13 +280,15 @@ class mapper():
 
     def capture_mapped_stats(self, json_data):
 
-        data_source = json_data.get('DATA_SOURCE', 'OOR')
-        for key1 in json_data.keys():
-            if isinstance(json_data[key1], list):
-                self.update_stat(data_source, key1, value=json_data[key1])
+        record_type = json_data.get('RECORD_TYPE', 'UNKNOWN_TYPE')
+
+        for key1 in json_data:
+            if not isinstance(json_data[key1], list):
+                self.update_stat(record_type, key1, value=json_data[key1])
             else:
-                # it seems the format changed in bods-v0.2 in it is not an array anymore
-                self.update_stat(data_source, key1, value=[json_data[key1]])
+                for subrecord in json_data[key1]:
+                    for key2 in subrecord:
+                        self.update_stat(record_type, key2, value=subrecord[key2])
 
 
 def signal_handler(signal, frame):
@@ -320,14 +339,12 @@ if __name__ == "__main__":
         json_data = mapper.map(input_row, input_row_count)
 
         if json_data:
-            # for some reason, without the following line there was not any key with DATA_SOURCE in the generated file
-            json_data['DATA_SOURCE'] = "OPEN_OWNER"
             if json_data['RECORD_ID'] not in output_cache:
                 output_cache[json_data['RECORD_ID']] = json_data
             else:
                 for attr in json_data.keys():
-                    if attr == 'RELATIONSHIP_LIST':
-                        output_cache[json_data['RECORD_ID']]['RELATIONSHIP_LIST'].extend(json_data['RELATIONSHIP_LIST'])
+                    if attr == 'RELATIONSHIPS':
+                        output_cache[json_data['RECORD_ID']]['RELATIONSHIPS'].extend(json_data['RELATIONSHIPS'])
                     elif attr not in output_cache[json_data['RECORD_ID']]:
                         output_cache[json_data['RECORD_ID']][attr] = json_data[attr]
 
@@ -345,19 +362,25 @@ if __name__ == "__main__":
 
         output_row_count = 0
         for record_id in output_cache.keys():
-            mapper.capture_mapped_stats(output_cache[record_id])
-            if output_file_name.endswith('.gz'):
-                output_file_handle.write((json.dumps(output_cache[record_id])+'\n').encode('utf-8'))
+            if output_cache[record_id].get('RECORD_TYPE'):
+                mapper.capture_mapped_stats(output_cache[record_id])
+                if output_file_name.endswith('.gz'):
+                    output_file_handle.write((json.dumps(output_cache[record_id])+'\n').encode('utf-8'))
+                else:
+                    output_file_handle.write((json.dumps(output_cache[record_id])+'\n'))
+                output_row_count += 1
+                if output_row_count % 10000 == 0:
+                    print(f'{output_row_count:,} rows written')
             else:
-                output_file_handle.write((json.dumps(output_cache[record_id])+'\n'))
-            output_row_count += 1
-            if output_row_count % 10000 == 0:
-                print(f'{output_row_count:,} rows written')
+                mapper.update_stat('!alert', 'relationship-without-entity!', value=output_cache[record_id].get('RECORD_ID'))
+
+            if shut_down:
+                break
         print(f'{output_row_count:,} rows written. complete')
 
     elapsed_mins = round((time.time() - proc_start_time) / 60, 1)
     run_status = ('completed in' if not shut_down else 'aborted after') + ' %s minutes' % elapsed_mins
-    print('%s rows processed, %s rows written, %s\n' % (input_row_count, output_row_count, run_status))
+    print(f'{input_row_count:,} rows processed, {output_row_count:,} rows written, {run_status}\n')
 
     output_file_handle.close()
     input_file_handle.close()
