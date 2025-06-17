@@ -2,9 +2,9 @@
 
 ## Overview
 
-The [oor_mapper.py](oor_mapper.py) python script converts the Open Ownership Register to json files ready to load into Senzing.
+The [oor_mapper.py] python script converts the Open Ownership Register to json files ready to load into Senzing.
 
-The Open Ownership download page is [here](https://register.openownership.org/download).  Just select the latest date and download the file.
+The Open Ownership download page is [here]. Just select the latest date and download the file.
 It should be named something like "statements.yyyy-mm-ddThh_mm_ssZ.jsonl.gz"
 
 Usage:
@@ -25,11 +25,11 @@ optional arguments:
 
 ## Contents
 
-1. [Prerequisites](#prerequisites)
-2. [Installation](#installation)
-3. [Configuring Senzing](#configuring-senzing)
-4. [Running the mapper](#running-the-mapper)
-5. [Loading into Senzing](#loading-into-senzing)
+1. [Prerequisites]
+2. [Installation]
+3. [Configuring Senzing]
+4. [Running the mapper]
+5. [Loading into Senzing]
 
 ### Prerequisites
 
@@ -40,17 +40,16 @@ optional arguments:
 
 Place the the following files on a directory of your choice ...
 
-- [oor_mapper.py](oor_mapper.py)
-- [oor_config_updates.g2c](oor_config_updates.g2c)
-
+- [oor_mapper.py]
+- [oor_config_updates.g2c]
 
 ### Configuring Senzing
 
-*Note:* This only needs to be performed one time! In fact you may want to add these configuration updates to a master configuration file for all your data sources.
+_Note:_ This only needs to be performed one time! In fact you may want to add these configuration updates to a master configuration file for all your data sources.
 
-Loading the Open Ownership Register into Senzing only requires registering the data souce.  No additional features or attributes are
-required.  This configuration is contained in the [oor_config_updates.g2c](oor_config_updates.g2c) file.
-To apply it, from your Senzing project's python directrory type ...
+Loading the Open Ownership Register into Senzing only requires registering the data source. No additional features or attributes are
+required. This configuration is contained in the [oor_config_updates.g2c] file.
+To apply it, from your Senzing project's python directory type ...
 
 ```console
 python3 G2ConfigTool.py <path-to-file>/oor_config_updates.g2c
@@ -58,16 +57,17 @@ python3 G2ConfigTool.py <path-to-file>/oor_config_updates.g2c
 
 ### Running the mapper
 
-Download the Open Ownership Register file from [https://register.openownership.org/download](https://register.openownership.org/download).
-Just select the latest date and download the file.  It should be named something like "statements.yyyy-mm-ddThh_mm_ssZ.jsonl.gz"
+Download the Open Ownership Register file from [https://register.openownership.org/download].
+Just select the latest date and download the file. It should be named something like "statements.yyyy-mm-ddThh_mm_ssZ.jsonl.gz"
 
 Then in a terminal session, navigate to where you downloaded this mapper and type ...
+
 ```console
 python3 oor_mapper.py -i /download_path/statements.yyyy-mm-ddThh_mm_ssZ.jsonl.gz -o /output_path/sz_oor_register.yyyy-mm-dd.jsonl.gz
 ```
+
 - If the output file name ends with ".gz", the output file will be compressed
 - Add the -l --log_file argument to generate a mapping statistics file
-
 
 ### Loading into Senzing
 
@@ -78,3 +78,13 @@ python3 G2Loader.py -f /output_path/sz_oor_register.yyyy-mm-dd.jsonl.gz
 ```
 
 This data set currently contains about 18 million entities and owners and make take several hours to load based on your hardware.
+
+[oor_mapper.py]: oor_mapper.py
+[here]: https://register.openownership.org/download
+[Prerequisites]: #prerequisites
+[Installation]: #installation
+[Configuring Senzing]: #configuring-senzing
+[Running the mapper]: #running-the-mapper
+[Loading into Senzing]: #loading-into-senzing
+[oor_config_updates.g2c]: oor_config_updates.g2c
+[https://register.openownership.org/download]: https://register.openownership.org/download
