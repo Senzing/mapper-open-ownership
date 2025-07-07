@@ -79,12 +79,12 @@ python3 G2Loader.py -f /output_path/sz_oor_register.yyyy-mm-dd.jsonl.gz
 
 This data set currently contains about 18 million entities and owners and make take several hours to load based on your hardware.
 
-[oor_mapper.py]: oor_mapper.py
+[oor_mapper.py]: src/oor_mapper.py
 [here]: https://register.openownership.org/download
 [Prerequisites]: #prerequisites
 [Installation]: #installation
 [Configuring Senzing]: #configuring-senzing
 [Running the mapper]: #running-the-mapper
 [Loading into Senzing]: #loading-into-senzing
-[oor_config_updates.g2c]: oor_config_updates.g2c
+[oor_config_updates.g2c]: src/oor_config_updates.g2c
 [https://register.openownership.org/download]: https://register.openownership.org/download
