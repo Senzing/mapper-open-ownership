@@ -5,19 +5,28 @@
   "language": "en",
   // words - list of words to be always considered correct
   "words": [
+      "Analysing",
       "CCLA",
       "CODEOWNER",
       "ICLA",
+      "isort",
+      "kwargs",
       "mypy",
       "ORSR",
       "pylint",
+      "pytest",
       "Senzing",
+      "setuptools",
+      "shellcheck",
       "stackoverflow",
-      "subrecord"
+      "subrecord",
+      "venv"
     ],
   "ignorePaths": [
     ".git/**",
     ".gitignore",
-    ".mypy_cache/**"
+    ".mypy_cache/**",
+    "development-requirements.txt",
+    "documentation-requirements.txt"
   ]
 }
