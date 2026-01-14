@@ -9,6 +9,7 @@ This is a data mapper for the Open Ownership Register. It converts Open Ownershi
 ## Commands
 
 ### Install dependencies
+
 ```bash
 python -m venv ./venv
 source ./venv/bin/activate
@@ -16,11 +17,13 @@ pip install --group all .
 ```
 
 ### Run the mapper
+
 ```bash
 python src/oor_mapper.py -i <input_file.jsonl.gz> -o <output_file.jsonl.gz> [-l <log_file.json>]
 ```
 
 ### Lint
+
 ```bash
 pylint $(git ls-files '*.py' ':!:docs/source/*')
 black --check src/
